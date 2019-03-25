@@ -31,15 +31,14 @@ import static java.util.Objects.requireNonNull;
 /**
  * Bean having the responsibility to replace any placeholders & functions calls using {@link KiteContext}
  * as data provider.
- *
+ * <p>
  * Look at {@link ContextProcessor#AUTOMATIC_CHECK_AUTHORIZATION_HEADER_VALUE} for more details about the authorization-aware automaticCheck
- *
  */
 @Data
 @Slf4j
 public class ContextProcessor {
 	private static final Pattern TIMESTAMP_PATTERN = Pattern.compile("\\{\\{Timestamp:Now\\}\\}",
-	                                                                 Pattern.CASE_INSENSITIVE);
+			Pattern.CASE_INSENSITIVE);
 	private static final Pattern UUID_PATTERN = Pattern.compile("\\{\\{" + UUIDFunction.NAME + ":(.+?)\\}\\}");
 
 	/**
@@ -50,8 +49,10 @@ public class ContextProcessor {
 	private final KiteContext kiteContext;
 	private final Collection<Function> availableFunctions;
 
+	private String processedBody;
+
 	ContextProcessor(Collection<Function> availableFunctions,
-	                 KiteContext kiteContext) {
+					 KiteContext kiteContext) {
 		this.availableFunctions = availableFunctions;
 		this.kiteContext = kiteContext;
 	}
@@ -205,7 +206,7 @@ public class ContextProcessor {
 	 * placeholders replaced
 	 */
 	public String processPlaceholders(@Nullable String commandName,
-	                                  String valueWithPlaceholders, boolean jsonEscapeFunctionResult) {
+									  String valueWithPlaceholders, boolean jsonEscapeFunctionResult) {
 		String processedValue = valueWithPlaceholders;
 
 		try {
@@ -213,7 +214,7 @@ public class ContextProcessor {
 			if (commandName != null) {
 				processedValue = processedValue
 						.replace("{{" + UUIDFunction.NAME + "}}", "{{"
-						                                          + UUIDFunction.NAME + ':' + commandName + "}}");
+								+ UUIDFunction.NAME + ':' + commandName + "}}");
 			}
 			// Update UUIDs list to add the one assigned for current command
 			getEveryUUIDs(processedValue);
@@ -234,8 +235,8 @@ public class ContextProcessor {
 		}
 
 		if (expected instanceof Boolean ||
-		    expected instanceof Long ||
-		    expected instanceof Double) {
+				expected instanceof Long ||
+				expected instanceof Double) {
 			return expected;
 		}
 		throw new UnsupportedOperationException("Incorrect value : " + expected);
@@ -248,15 +249,22 @@ public class ContextProcessor {
 
 
 	/**
+	 * Retrieves the body from command in parameter and process its placeholders.
+	 *
 	 * @param command the command to get body from, not null
 	 * @return the body of the request, with placeholders processed
 	 */
-	private String getProcessedBody(Command command) {
+	public String getProcessedBody(Command command) {
+		if (processedBody != null) {
+			return processedBody;
+		}
+
 		String body = command.getBody();
 		if (Strings.isNullOrEmpty(body)) {
 			return "";
 		}
-		return processPlaceholders(command.getName(), body, true);
+		processedBody = processPlaceholders(command.getName(), body, true);
+		return processedBody;
 	}
 
 	/**
@@ -292,7 +300,7 @@ public class ContextProcessor {
 
 		for (Map.Entry<String, String> entry : processedHeaders.entrySet()) {
 			processedHeaders.put(entry.getKey(),
-			                     processPlaceholders(command.getName(), entry.getValue(), false));
+					processPlaceholders(command.getName(), entry.getValue(), false));
 		}
 
 		if (!processedHeaders.containsKey("Accept")) {
@@ -313,7 +321,7 @@ public class ContextProcessor {
 
 		for (Map.Entry<String, String> entry : processedHeaders.entrySet()) {
 			processedHeaders.put(entry.getKey(),
-			                     processPlaceholders(command.getName(), entry.getValue(), false));
+					processPlaceholders(command.getName(), entry.getValue(), false));
 		}
 
 		if (!processedHeaders.containsKey("Accept")) {
@@ -321,11 +329,11 @@ public class ContextProcessor {
 		}
 
 		if (kiteContext.getAuthorizationHeaderNameForAutomaticCheck() != null
-		    && !processedHeaders.containsKey(kiteContext.getAuthorizationHeaderNameForAutomaticCheck())
-		    && kiteContext.getVariables().get(AUTOMATIC_CHECK_AUTHORIZATION_HEADER_VALUE) != null) {
+				&& !processedHeaders.containsKey(kiteContext.getAuthorizationHeaderNameForAutomaticCheck())
+				&& kiteContext.getVariables().get(AUTOMATIC_CHECK_AUTHORIZATION_HEADER_VALUE) != null) {
 			log.debug("Add authorization header for automatic check");
 			processedHeaders.put(kiteContext.getAuthorizationHeaderNameForAutomaticCheck(),
-			                     kiteContext.getVariableValue(AUTOMATIC_CHECK_AUTHORIZATION_HEADER_VALUE));
+					kiteContext.getVariableValue(AUTOMATIC_CHECK_AUTHORIZATION_HEADER_VALUE));
 		}
 
 		return processedHeaders;
