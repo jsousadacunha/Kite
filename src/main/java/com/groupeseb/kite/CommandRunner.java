@@ -12,6 +12,8 @@ import com.jayway.restassured.response.Response;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.http.HttpStatus;
 import org.apache.http.params.BasicHttpParams;
+import org.json.JSONException;
+import org.json.JSONObject;
 import org.json.simple.parser.ParseException;
 import org.junit.Assert;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,7 +22,6 @@ import org.springframework.util.StringUtils;
 
 import javax.annotation.Nullable;
 import java.io.IOException;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -147,10 +148,9 @@ public class CommandRunner {
 		KiteContext kiteContext = contextProcessor.getKiteContext();
 		addBodyIfNotEmpty(kiteContext, postResponse.getBody().asString(), command);
 
-		checkStatus(command.getExpectedStatus(), contextProcessor.getProcessedBody(command), postResponse);
+		checkStatus(command, contextProcessor, postResponse);
 
-		runChecks(contextProcessor.getChecks(command), postResponse.getBody().asString(),
-				contextProcessor.getProcessedBody(command), postResponse);
+		runChecks(command, contextProcessor, postResponse);
 
 		if (command.getAutomaticCheck()) {
 			doCheck(command, contextProcessor, postResponse, kiteContext);
@@ -194,10 +194,9 @@ public class CommandRunner {
 		KiteContext kiteContext = contextProcessor.getKiteContext();
 		addBodyIfNotEmpty(kiteContext, patchResponse.getBody().asString(), command);
 
-		checkStatus(command.getExpectedStatus(), contextProcessor.getProcessedBody(command), patchResponse);
+		checkStatus(command, contextProcessor, patchResponse);
 
-		runChecks(contextProcessor.getChecks(command), patchResponse.getBody().asString(),
-				contextProcessor.getProcessedBody(command), patchResponse);
+		runChecks(command, contextProcessor, patchResponse);
 
 		if (command.getAutomaticCheck()) {
 			doCheck(command, contextProcessor, patchResponse, kiteContext);
@@ -240,8 +239,7 @@ public class CommandRunner {
 			paginatedGet(command, contextProcessor);
 		} else {
 			Response response = performGetRequest(command, contextProcessor);
-			runChecks(contextProcessor.getChecks(command), response.getBody().asString(),
-					contextProcessor.getProcessedBody(command), response);
+			runChecks(command, contextProcessor, response);
 		}
 	}
 
@@ -259,8 +257,7 @@ public class CommandRunner {
 			Response response = performGetRequest(command, contextProcessor);
 			totalPages = JsonPath.read(response.getBody().asString(), command.getPagination().getTotalPagesField());
 
-			runChecks(contextProcessor.getChecks(command), response.getBody().asString(),
-					contextProcessor.getProcessedBody(command), response);
+			runChecks(command, contextProcessor, response);
 			currentPage++;
 		}
 	}
@@ -285,8 +282,7 @@ public class CommandRunner {
 
 		KiteContext kiteContext = contextProcessor.getKiteContext();
 		addBodyIfNotEmpty(kiteContext, putResponse.getBody().asString(), command);
-		runChecks(contextProcessor.getChecks(command), putResponse.getBody().asString(),
-				contextProcessor.getProcessedBody(command), putResponse);
+		runChecks(command, contextProcessor, putResponse);
 	}
 
 	private void delete(Command command, ContextProcessor contextProcessor) throws ParseException {
@@ -308,8 +304,7 @@ public class CommandRunner {
 			deleteResponse.prettyPrint();
 		}
 
-		runChecks(contextProcessor.getChecks(command), deleteResponse.getBody().asString(),
-				contextProcessor.getProcessedBody(command), deleteResponse);
+		runChecks(command, contextProcessor, deleteResponse);
 
 		log.info("Checking resource: " + processedURI + "...");
 
@@ -321,37 +316,24 @@ public class CommandRunner {
 		}
 	}
 
-	private void runChecks(Collection<Check> checks, String responseBody,
-						   String requestBody, Response response) throws ParseException {
+	private void runChecks(Command command, ContextProcessor contextProcessor, Response response) throws ParseException {
 		String errorMessage = null;
-		for (Check check : checks) {
+		for (Check check : contextProcessor.getChecks(command)) {
 			try {
-				defaultCheckRunner.verify(check, responseBody);
+				defaultCheckRunner.verify(check, response.getBody().asString());
 			} catch (CheckFailException cfex) {
-				printPayloads(requestBody, response);
+				printErrorPayloads(cfex.getMessage(), command, contextProcessor, response);
 				errorMessage = cfex.getMessage();
 			} catch (AssertionError ae) {
-				printPayloads(requestBody, response);
+				printErrorPayloads(ae.getMessage(), command, contextProcessor, response);
 				throw ae;
 			} catch (RuntimeException e) {
-				printPayloads(requestBody, response);
+				printErrorPayloads(e.getMessage(), command, contextProcessor, response);
 				throw new IllegalStateException("Check [" + check.getDescription() + "] failed ", e);
 			}
 		}
 		if (errorMessage != null) {
 			Assert.fail(errorMessage);
-		}
-	}
-
-	private void printPayloads(String requestBody, Response response) {
-		if (!StringUtils.isEmpty(requestBody)) {
-			log.info("REQUEST:");
-			log.info(requestBody);
-		}
-
-		if (!StringUtils.isEmpty(response.getBody().asString())) {
-			log.info("RESPONSE:");
-			response.prettyPrint();
 		}
 	}
 
@@ -366,23 +348,59 @@ public class CommandRunner {
 		}
 	}
 
-	private void checkStatus(Integer expectedStatus, String requestBody, Response response) {
+	private void checkStatus(Command command, ContextProcessor contextProcessor, Response response) {
 		try {
-			assertEquals("Unexpected response status", expectedStatus, Integer.valueOf(response.getStatusCode()));
+			assertEquals("Unexpected response status",
+					command.getExpectedStatus(), Integer.valueOf(response.getStatusCode()));
 		} catch (AssertionError ae) {
-			printPayloads(requestBody, response);
+			printErrorPayloads(ae.getMessage(), command, contextProcessor, response);
 		}
 	}
 
 	/**
-	 * Get from context a variable that says if it must log request data.
+	 * Get from context a variable that says if it must log response data.
 	 *
 	 * @param contextProcessor Context that contains variables and other data.
-	 * @return <code>true</code> if it must log requests, <code>false</code> otherwise.
+	 * @return <code>true</code> if it must log responses, <code>false</code> otherwise.
 	 */
 	private boolean mustLog(ContextProcessor contextProcessor) {
 		// Get from context variable that says if it must log all data from exchange
-		String logRequest = contextProcessor.getKiteContext().getVariables().get("logRequest");
-		return StringUtils.isEmpty(logRequest) ? true : Boolean.valueOf(logRequest);
+		String logResponse = contextProcessor.getKiteContext().getVariables().get("logResponse");
+		return StringUtils.isEmpty(logResponse) ? true : Boolean.valueOf(logResponse);
+	}
+
+	/**
+	 * Print request and response payloads as error if they exist.
+	 *
+	 * @param message          String with error message.
+	 * @param command          Kite command sent by test.
+	 * @param contextProcessor Processor used to replace command's placeholders with data from the kite's context.
+	 * @param response         {@link Response} instance that contains the body of response.
+	 */
+	private void printErrorPayloads(String message, Command command,
+									ContextProcessor contextProcessor, Response response) {
+		StringBuilder error = new StringBuilder(message);
+		error.append("\nREQUEST: ")
+				.append(command.getVerb().toUpperCase())
+				.append(" ")
+				.append(contextProcessor.getProcessedURI(command))
+				.append("\n");
+		error.append(contextProcessor.getProcessedHeaders(command));
+
+		String requestBody = contextProcessor.getProcessedBody(command);
+		if (!StringUtils.isEmpty(requestBody)) {
+			try {
+				error.append("\n").append(new JSONObject(requestBody).toString(4));
+			} catch (JSONException e) {
+				Assert.fail(e.getMessage());
+			}
+		}
+
+		if (!StringUtils.isEmpty(response.getBody().asString())) {
+			error.append("\nRESPONSE:");
+		}
+
+		log.error(error.toString());
+		response.prettyPrint();
 	}
 }
