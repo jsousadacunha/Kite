@@ -49,8 +49,6 @@ public class ContextProcessor {
 	private final KiteContext kiteContext;
 	private final Collection<Function> availableFunctions;
 
-	private String processedBody;
-
 	ContextProcessor(Collection<Function> availableFunctions,
 					 KiteContext kiteContext) {
 		this.availableFunctions = availableFunctions;
@@ -255,16 +253,11 @@ public class ContextProcessor {
 	 * @return the body of the request, with placeholders processed
 	 */
 	public String getProcessedBody(Command command) {
-		if (processedBody != null) {
-			return processedBody;
-		}
-
 		String body = command.getBody();
 		if (Strings.isNullOrEmpty(body)) {
 			return "";
 		}
-		processedBody = processPlaceholders(command.getName(), body, true);
-		return processedBody;
+		return processPlaceholders(command.getName(), body, true);
 	}
 
 	/**

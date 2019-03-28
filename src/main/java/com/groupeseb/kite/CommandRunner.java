@@ -379,7 +379,15 @@ public class CommandRunner {
 	 */
 	private void printErrorPayloads(String message, Command command,
 									ContextProcessor contextProcessor, Response response) {
+		// message
 		StringBuilder error = new StringBuilder(message);
+
+		// service
+		error.append("\nSERVICE: ")
+				.append(command.getService() != null ?
+						command.getService() : contextProcessor.getKiteContext().getDefaultServiceKey());
+
+		// request
 		error.append("\nREQUEST: ")
 				.append(command.getVerb().toUpperCase())
 				.append(" ")
@@ -387,20 +395,23 @@ public class CommandRunner {
 				.append("\n");
 		error.append(contextProcessor.getProcessedHeaders(command));
 
+		// request body
 		String requestBody = contextProcessor.getProcessedBody(command);
 		if (!StringUtils.isEmpty(requestBody)) {
 			try {
 				error.append("\n").append(new JSONObject(requestBody).toString(4));
 			} catch (JSONException e) {
-				Assert.fail(e.getMessage());
+				error.append("\n").append(requestBody);
 			}
 		}
 
+		// response body
 		if (!StringUtils.isEmpty(response.getBody().asString())) {
 			error.append("\nRESPONSE:");
 		}
 
 		log.error(error.toString());
+		// call to prettyPrint() prints always response's body
 		response.prettyPrint();
 	}
 }
