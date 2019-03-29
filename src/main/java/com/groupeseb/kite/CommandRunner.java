@@ -354,6 +354,7 @@ public class CommandRunner {
 					command.getExpectedStatus(), Integer.valueOf(response.getStatusCode()));
 		} catch (AssertionError ae) {
 			printErrorPayloads(ae.getMessage(), command, contextProcessor, response);
+			throw ae;
 		}
 	}
 
@@ -402,6 +403,7 @@ public class CommandRunner {
 				error.append("\n").append(new JSONObject(requestBody).toString(4));
 			} catch (JSONException e) {
 				error.append("\n").append(requestBody);
+				log.debug(e.getMessage(), e);
 			}
 		}
 
